@@ -14,19 +14,19 @@ def generate_launch_description():
     # Questo è il file di default. Se non specifichi nulla da terminale, aprirà questo.
     default_crazyflies_yaml = os.path.join(
         home_dir, 
-        'ros2_ws/src/crazyswarm2/crazyflie/config/crazyflies.yaml'
+        'ros2_ws/src/crazyswarm2/cfs_system/crazyflie/config/crazyflies.yaml'
     )
     
     # Percorso configurazione RViz
     rviz_config_path = os.path.join(
         home_dir, 
-        'ros2_ws/src/crazyswarm2/crazyflie_examples/config/rviz2_custom_cfs.rviz'
+        'ros2_ws/src/crazyswarm2/cfs_system/crazyflie_examples/config/rviz2_custom_cfs.rviz'
     )
     
     # Percorso dati per visualize_trajectory
     viz_data_path = os.path.join(
         home_dir, 
-        'ros2_ws/src/crazyswarm2/crazyflie_examples/crazyflie_examples/data'
+        'ros2_ws/src/crazyswarm2/cfs_system/crazyflie_examples/crazyflie_examples/data'
     )
 
     # --- 2. DICHIARAZIONE DEGLI ARGOMENTI NEL PADRE ---
