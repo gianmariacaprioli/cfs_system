@@ -2,6 +2,7 @@
 
 #include <sstream>
 #include <stdexcept>
+#include <cstring>
 
 #include <libusb.h>
 
@@ -10,14 +11,16 @@ namespace crazyflieLinkCpp {
 
 enum
 {
-    SET_RADIO_CHANNEL   = 0x01,
-    SET_RADIO_ADDRESS   = 0x02,
-    SET_DATA_RATE       = 0x03,
-    SET_RADIO_POWER     = 0x04,
-    SET_RADIO_ARD       = 0x05,
-    SET_RADIO_ARC       = 0x06,
-    ACK_ENABLE          = 0x10,
-    SET_CONT_CARRIER    = 0x20,
+    SET_RADIO_CHANNEL           = 0x01,
+    SET_RADIO_ADDRESS           = 0x02,
+    SET_DATA_RATE               = 0x03,
+    SET_RADIO_POWER             = 0x04,
+    SET_RADIO_ARD               = 0x05,
+    SET_RADIO_ARC               = 0x06,
+    ACK_ENABLE                  = 0x10,
+    SET_CONT_CARRIER            = 0x20,
+    SET_INLINE_MODE             = 0x23,
+    SET_PACKET_LOSS_SIMULATION  = 0x30,
     // SCANN_CHANNELS      = 0x21,
     LAUNCH_BOOTLOADER   = 0xFF,
 };
@@ -110,9 +113,23 @@ void Crazyradio::setAckEnabled(bool enable)
     ackEnabled_ = enable;
 }
 
+void Crazyradio::setInlineMode(bool enable)
+{
+    sendVendorSetup(SET_INLINE_MODE, enable, 0, NULL, 0);
+}
+
 void Crazyradio::setContCarrier(bool active)
 {
     sendVendorSetup(SET_CONT_CARRIER, active, 0, NULL, 0);
+}
+
+void Crazyradio::setPacketLossSimulation(uint8_t packet_loss_percent, uint8_t ack_loss_percent)
+{
+    unsigned char a[2];
+    a[1] = ack_loss_percent;
+    a[0] = packet_loss_percent;
+
+    sendVendorSetup(SET_PACKET_LOSS_SIMULATION, 0, 0, a, 2);
 }
 
 Crazyradio::Ack Crazyradio::sendPacket(
@@ -136,7 +153,7 @@ Crazyradio::Ack Crazyradio::sendPacket(
     //     return;
     // }
     if (status != LIBUSB_SUCCESS) {
-        throw std::runtime_error(libusb_error_name(status));
+        throw std::runtime_error("sendPacket: " + std::string(libusb_error_name(status)));
     }
     if (length != (uint32_t)transferred) {
         std::stringstream sstr;
@@ -183,7 +200,7 @@ void Crazyradio::sendPacketNoAck(
     //     return;
     // }
     if (status != LIBUSB_SUCCESS) {
-        throw std::runtime_error(libusb_error_name(status));
+        throw std::runtime_error("sendPacketNoAck: " + std::string(libusb_error_name(status)));
     }
     if (length != (uint32_t)transferred) {
         std::stringstream sstr;
@@ -211,13 +228,79 @@ void Crazyradio::send2PacketsNoAck(
     //     return;
     // }
     if (status != LIBUSB_SUCCESS) {
-        throw std::runtime_error(libusb_error_name(status));
+        throw std::runtime_error("send2PacketsNoAck: " + std::string(libusb_error_name(status)));
     }
     if (totalLength != (uint32_t)transferred) {
         std::stringstream sstr;
         sstr << "Did transfer " << transferred << " but " << totalLength << " was requested!";
         throw std::runtime_error(sstr.str());
     }
+}
+
+Crazyradio::Ack Crazyradio::sendPacketInline(
+    const uint8_t* data,
+    uint32_t length,
+    Datarate datarate,
+    uint8_t channel,
+    uint64_t address,
+    bool ackEnabled)
+{
+    Crazyradio::Ack ack;
+
+    int status;
+    int transferred;
+
+    // set up header
+    uint8_t inline_data[40];
+    inline_data[0] = 8 + length;
+    inline_data[1] = datarate | (ackEnabled << 4);
+    inline_data[2] = channel;
+    inline_data[3] = (address >> 32) & 0xFF;
+    inline_data[4] = (address >> 24) & 0xFF;
+    inline_data[5] = (address >> 16) & 0xFF;
+    inline_data[6] = (address >> 8) & 0xFF;
+    inline_data[7] = (address >> 0) & 0xFF;
+    memcpy(&inline_data[8], data, length);
+
+    // Send data
+    status = libusb_bulk_transfer(
+        dev_handle_,
+        /* endpoint*/ (0x01 | LIBUSB_ENDPOINT_OUT),
+        inline_data,
+        length + 8,
+        &transferred,
+        /*timeout*/ 100);
+    // if (status == LIBUSB_ERROR_TIMEOUT) {
+    //     return;
+    // }
+    if (status != LIBUSB_SUCCESS) {
+        throw std::runtime_error(libusb_error_name(status));
+    }
+    if (length + 8 != (uint32_t)transferred) {
+        std::stringstream sstr;
+        sstr << "Did transfer " << transferred << " but " << length << " was requested!";
+        throw std::runtime_error(sstr.str());
+    }
+
+    // Read result
+    status = libusb_bulk_transfer(
+        dev_handle_,
+        /* endpoint*/ (0x81 | LIBUSB_ENDPOINT_IN),
+        ack.data_.data(),
+        ack.data_.size(),
+        &transferred,
+        /*timeout*/ 10);
+    if (status == LIBUSB_ERROR_TIMEOUT) {
+        return ack;
+    }
+    if (status != LIBUSB_SUCCESS) {
+        throw std::runtime_error(libusb_error_name(status));
+    }
+
+    ack.size_ = transferred - 2;
+    ack.inline_mode_ = true;
+
+    return ack;
 }
 
 } // namespace crazyflieLinkCpp
