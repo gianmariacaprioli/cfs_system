@@ -1,0 +1,7 @@
+# Request
+string[] trajectory_files
+string[] drone_ids
+---
+# Response
+bool success
+string message
