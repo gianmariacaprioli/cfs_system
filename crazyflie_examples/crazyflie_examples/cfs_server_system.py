@@ -9,6 +9,8 @@ from pathlib import Path
 import numpy as np
 import os
 import sys
+import signal # Fondamentale per il Ctrl+C pulito
+import time
 
 # IMPORTAZIONE FUNZIONE ESTERNA
 try:
@@ -35,7 +37,7 @@ Z_HOME = 0.3
 
 Z_WAITING = 1.0           
 MIN_SAFE_DISTANCE = 0.45  
-EVASION_Z_OFFSET = 0.3    # Offset verticale relativo (+/- 0.3m)
+EVASION_Z_OFFSET = 0.3    
 
 # Tempi
 DURATION_GOTO_CENTER = 8.0
@@ -55,19 +57,23 @@ STATE_DONE = 4
 # Stati di Emergenza
 STATE_EVASION_HOLD = 90     
 STATE_IN_QUEUE = 91         
-STATE_RESUMING_POSITION = 92 # Fase di discesa alla Z nominale
+STATE_RESUMING_POSITION = 92 
 STATE_EXECUTING_RESUMED = 93 
 STATE_EMERGENCY_LANDING = 99
 
 class StartSystem(Node):
 
-    def __init__(self):
-        self.swarm = Crazyswarm()
-        self.timeHelper = self.swarm.timeHelper
-        self.allcfs = self.swarm.allcfs
-
+    def __init__(self, swarm):
         super().__init__('mission_server')
         
+        # Passiamo l'oggetto swarm dall'esterno per non accavallare i nodi ROS
+        self.swarm = swarm
+        self.timeHelper = self.swarm.timeHelper
+        self.allcfs = self.swarm.allcfs
+        
+        # Flag per l'arresto d'emergenza
+        self.emergency_stop = False
+
         self.srv = self.create_service(
             StartMission, 
             'start_mission', 
@@ -90,7 +96,6 @@ class StartSystem(Node):
                 if flight_data[j]['state'] in [STATE_DONE, STATE_EMERGENCY_LANDING]:
                     continue
 
-                # Se entrambi sono già in gestione emergenza, ignora
                 if flight_data[i]['state'] >= 90 and flight_data[j]['state'] >= 90:
                     continue
 
@@ -104,7 +109,6 @@ class StartSystem(Node):
                     z_i = pos_i[2]
                     z_j = pos_j[2]
                     
-                    # Logica offset Z: chi è più alto sale, chi è più basso scende
                     if z_i > z_j:
                         offset_i, offset_j = +EVASION_Z_OFFSET, -EVASION_Z_OFFSET
                     else:
@@ -114,11 +118,6 @@ class StartSystem(Node):
                     self.trigger_evasive_maneuver(flight_data[j], offset_j)
 
     def trigger_evasive_maneuver(self, drone_data, z_offset_relative):
-        """
-        1. Calcola Punto Medio (XY).
-        2. Sposta drone a Punto Medio + Offset Z.
-        3. Salva Punto Medio + Z Nominale come start per il ricalcolo.
-        """
         cf = drone_data['cf']
         current_pos = np.array(cf.position) 
         
@@ -140,7 +139,6 @@ class StartSystem(Node):
                     dists = np.linalg.norm(wp_coords - curr_xy, axis=1)
                     closest_idx = np.argmin(dists)
                     
-                    # Segmento A -> B
                     if closest_idx == 0:
                         idx_a, idx_b = 0, 1
                     else:
@@ -149,16 +147,12 @@ class StartSystem(Node):
                     p_a = wp_coords[idx_a]
                     p_b = wp_coords[idx_b]
                     
-                    # --- PUNTO MEDIO ---
                     mid_x = (p_a[0] + p_b[0]) / 2.0
                     mid_y = (p_a[1] + p_b[1]) / 2.0
                     
-                    # Z per l'evasione (con offset per evitare botto)
                     evasion_z = max(current_pos[2] + z_offset_relative, 0.1)
                     target_pos = np.array([mid_x, mid_y, evasion_z])
                     
-                    # --- DATI PER RICALCOLO ---
-                    # Il ricalcolo partirà dal punto medio, ma alla quota corretta (1.0m)
                     drone_data['resume_start_coords'] = np.array([mid_x, mid_y, Z_START_TRAJ])
                     drone_data['resume_wp_idx'] = idx_b
                     
@@ -167,16 +161,10 @@ class StartSystem(Node):
             except Exception as e:
                 self.get_logger().error(f"Errore calcolo midpoint: {e}")
 
-        # Esegui GoTo Evasivo
         cf.goTo(target_pos, 0.0, DURATION_GOTO_EVASION, relative=False)
         drone_data['state'] = STATE_EVASION_HOLD
 
     def generate_resume_trajectory(self, drone_data):
-        """
-        Genera CSV:
-        Riga 1: resume_start_coords (Midpoint @ Z=1.0)
-        Righe 2..N: Waypoint rimanenti
-        """
         try:
             resume_idx = drone_data.get('resume_wp_idx', 0)
             start_coords = drone_data.get('resume_start_coords', None)
@@ -192,7 +180,6 @@ class StartSystem(Node):
             all_waypoints = np.loadtxt(full_path, delimiter=",", skiprows=1)
             if all_waypoints.ndim == 1: all_waypoints = np.array([all_waypoints])
             
-            # Se siamo oltre la fine, ritorna 0.0
             if resume_idx >= len(all_waypoints):
                 return 0.0
 
@@ -204,11 +191,7 @@ class StartSystem(Node):
             self.get_logger().info(f"[{prefix}] Generazione Traj da Midpoint {start_coords} verso WP #{resume_idx}")
 
             with open(temp_in, 'w') as f:
-                # 1. SCRIVI PUNTO DI PARTENZA (Midpoint @ Z Nominale)
-                # NOTA: Niente Header "x,y,z" per compatibilità server C++
                 f.write(f"{start_coords[0]:.4f},{start_coords[1]:.4f},{start_coords[2]:.4f}\n")
-                
-                # 2. SCRIVI PUNTI RIMANENTI
                 for row in remaining_wps:
                     if len(row) >= 2:
                         x, y = float(row[0]), float(row[1])
@@ -217,7 +200,6 @@ class StartSystem(Node):
                 f.flush()
                 os.fsync(f.fileno())
 
-            # Chiama Server
             generate_trajectory(temp_in, temp_out, v_max=0.6, a_max=0.4)
             
             if not os.path.exists(temp_out):
@@ -233,20 +215,6 @@ class StartSystem(Node):
         except Exception as e:
             self.get_logger().error(f"Errore generazione resume: {e}")
             return None
-
-    def get_last_waypoint_from_route(self, traj_filename):
-        route_filename = traj_filename.replace("traj_", "route_")
-        full_path = os.path.join(DATA_DIR_STR, route_filename)
-        fallback_wp = np.random.uniform(-0.5, 0.5, 2) 
-
-        if not os.path.exists(full_path): return fallback_wp
-
-        try:
-            data = np.loadtxt(full_path, delimiter=",", skiprows=1)
-            if data.ndim == 1: last_wp = data[0:2]
-            else: last_wp = data[-1, 0:2]
-            return last_wp
-        except Exception: return fallback_wp
 
     def mission_callback(self, request, response):
         self.get_logger().info(f"START MISSIONE: Droni={request.drone_ids}")
@@ -266,7 +234,12 @@ class StartSystem(Node):
 
                 traj = Trajectory()
                 traj.loadcsv(traj_path)
+                
+                # --- FIX VOLO REALE: Upload scaglionato per far respirare la radio ---
+                self.get_logger().info(f"Upload traiettoria '{traj_name}' a {cf_name} via radio...")
                 cf.uploadTrajectory(0, 0, traj)
+                time.sleep(0.5) # Pausa di 500ms fondamentale per evitare saturazione pacchetti
+                # ---------------------------------------------------------------------
 
                 home_pos = np.array(cf.initialPosition) + np.array([X_HOME, Y_HOME, Z_HOME])
 
@@ -306,10 +279,10 @@ class StartSystem(Node):
 
             print("--- Inizio Loop ---")
             
-            while mission_running:
+            # AGGIUNTA SICUREZZA: Controlla se è stato premuto Ctrl+C (self.emergency_stop)
+            while mission_running and not self.emergency_stop:
                 self.check_safety(flight_data)
                 
-                # --- GESTIONE RIENTRO DA EVASIONE ---
                 active_resumers = any(d['state'] in [STATE_RESUMING_POSITION, STATE_EXECUTING_RESUMED] for d in flight_data)
 
                 if not active_resumers and len(landing_queue) > 0:
@@ -320,7 +293,6 @@ class StartSystem(Node):
                     duration = self.generate_resume_trajectory(next_drone)
                     
                     if duration and duration > 0.1:
-                        # 1. Recupera il punto di partenza (Midpoint @ 1.0m)
                         target_wp = next_drone['resume_start_coords']
                         
                         print(f"[{master_clock:.1f}] {next_drone['prefix']} >> GoTo Punto di Ripresa (Reset Z): {target_wp}")
@@ -353,7 +325,6 @@ class StartSystem(Node):
                     if st == STATE_IN_QUEUE:
                         continue
 
-                    # --- FLUSSO NORMALE ---
                     if st == STATE_IDLE:
                         if master_clock >= timers['start_move']:
                             center_pos = np.array([0.0, 0.0, Z_START_TRAJ])
@@ -372,8 +343,6 @@ class StartSystem(Node):
                             item['timers']['done_time'] = master_clock + DURATION_RETURN_HOME
                             item['state'] = STATE_RETURNING_HOME
 
-                    # --- FLUSSO RECUPERO ---
-                    # 1. Il drone si abbassa dal punto di evasione al punto medio (Z=1.0)
                     elif st == STATE_RESUMING_POSITION:
                         if master_clock >= item['timers']['resume_wp_reached']:
                             dur = item.get('resume_traj_duration', 0.0)
@@ -382,7 +351,6 @@ class StartSystem(Node):
                             item['timers']['resume_traj_end'] = master_clock + dur
                             item['state'] = STATE_EXECUTING_RESUMED
 
-                    # 2. Esegue la nuova traiettoria
                     elif st == STATE_EXECUTING_RESUMED:
                         if master_clock >= item['timers']['resume_traj_end']:
                             print(f"[{master_clock:.1f}] {item['prefix']} || Recupero Finito. A casa.")
@@ -390,7 +358,6 @@ class StartSystem(Node):
                             item['timers']['done_time'] = master_clock + DURATION_RETURN_HOME
                             item['state'] = STATE_RETURNING_HOME
 
-                    # --- RIENTRO ---
                     elif st == STATE_RETURNING_HOME:
                         if master_clock >= item['timers']['done_time']:
                             print(f"[{master_clock:.1f}] {item['prefix']} -- Atterrato.")
@@ -400,32 +367,78 @@ class StartSystem(Node):
                     print("Tutti i droni hanno completato la missione.")
                     mission_running = False
 
+                # Permette al nodo ROS di respirare durante il loop della missione
+                rclpy.spin_once(self, timeout_sec=0)
                 self.timeHelper.sleep(STEP)
                 master_clock += STEP
 
-            print("--- Atterraggio Finale ---")
-            self.allcfs.land(targetHeight=0.04, duration=3.0)
-            self.timeHelper.sleep(3.0)
+            # Se siamo usciti per via di un'emergenza (Ctrl+C), salta l'atterraggio normale 
+            # e lascia fare all'handler dell'emergenza
+            if not self.emergency_stop:
+                print("--- Atterraggio Finale ---")
+                self.allcfs.land(targetHeight=0.04, duration=3.0)
+                self.timeHelper.sleep(3.0)
 
-            response.success = True
-            response.message = "Missione completata."
+                response.success = True
+                response.message = "Missione completata."
+            else:
+                response.success = False
+                response.message = "Missione interrotta da utente (Emergency Stop)."
             
         except Exception as e:
             self.get_logger().error(f"ERRORE CRITICO: {e}")
-            self.allcfs.land(targetHeight=0.04, duration=3.0)
+            if not self.emergency_stop:
+                self.allcfs.land(targetHeight=0.04, duration=3.0)
             response.success = False
             response.message = str(e)
 
         return response
 
-def main(args=None):
-    server_node = StartSystem()
+
+def main():
+    # 1. Inizializziamo Crazyswarm PRIMA di creare il nostro nodo
+    swarm = Crazyswarm()
+    
+    # 2. Creiamo il nostro nodo passandogli lo swarm per evitare conflitti
+    server_node = StartSystem(swarm)
+    
+    # 3. Definiamo l'intercettatore del Ctrl+C
+    def sigint_handler(sig, frame):
+        print("\n\n[EMERGENZA] Intercettato Ctrl+C! Arresto immediato della missione.")
+        server_node.emergency_stop = True
+        
+        # Manda il comando di atterraggio d'emergenza a tutti i droni
+        print("[EMERGENZA] Invio comando di atterraggio d'emergenza (Land)...")
+        try:
+            server_node.allcfs.land(targetHeight=0.04, duration=2.5)
+            # Diamo il tempo materiale ai droni di scendere prima di uccidere ROS
+            time.sleep(3.0) 
+        except Exception as e:
+            print(f"Impossibile atterrare: {e}")
+            
+        print("[EMERGENZA] Spegnimento motori.")
+        try:
+            server_node.allcfs.emergency() # Taglio definitivo dei motori
+        except:
+            pass
+            
+        print("[EMERGENZA] Uscita pulita.")
+        sys.exit(0) # Chiude lo script brutalmente ma in modo pulito per il S.O.
+
+    # 4. Agganciamo il segnale di sistema
+    signal.signal(signal.SIGINT, sigint_handler)
+
+    print("Server in ascolto... (Premi Ctrl+C per un atterraggio di emergenza controllato)")
+    
+    # 5. Facciamo girare il nodo finché non arrivano richieste
     try:
+        # Usa spin() normale: il nostro nodo rimarrà in attesa silenziosa 
+        # finché un client non chiama il servizio "start_mission"
         rclpy.spin(server_node)
-    except KeyboardInterrupt:
-        pass
+    except Exception as e:
+        print(f"Uscita dal main loop: {e}")
     finally:
-        pass
+        server_node.destroy_node()
 
 if __name__ == '__main__':
     main()

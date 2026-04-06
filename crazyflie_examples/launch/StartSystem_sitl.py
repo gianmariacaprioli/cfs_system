@@ -100,8 +100,8 @@ def generate_launch_description():
         yaml_arg, # DEVI aggiungere la dichiarazione qui
         cf_server_launch,
         # dynamic_obs_pub,
-        # flight_server_node,
-        # viz_traj_node,
+        flight_server_node,
+        viz_traj_node,
         rviz_node,
     ])
 

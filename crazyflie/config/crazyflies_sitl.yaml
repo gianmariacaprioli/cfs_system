@@ -5,26 +5,27 @@ robots:
   cf_0:
     enabled: true
     uri: udp://0.0.0.0:19850
-    initial_position: [-2.0, -1.0, 0.0]
+    # initial_position: [-2.0, -1.0, 0.0]
+    initial_position: [-0.0, -0.0, 0.0]
     type: cf_sim
 
 
   cf_1:
-    enabled: false
+    enabled: true
     uri: udp://0.0.0.0:19851
-    initial_position: [2.0, -1.0, 0.0]
+    initial_position: [0.5, 0.0, 0.0]
     type: cf_sim
 
 
   cf_2:
-    enabled: false
+    enabled: true
     uri: udp://0.0.0.0:19852
     initial_position: [0.0, -4.0, 0.0]
     type: cf_sim
 
 
   cf_3:
-    enabled: false
+    enabled: true
     uri: udp://0.0.0.0:19853
     initial_position: [-0.5, -0.5, 0.0]
     type: cf_sim

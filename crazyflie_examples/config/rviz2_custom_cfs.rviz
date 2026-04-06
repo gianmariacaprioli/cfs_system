@@ -59,14 +59,12 @@ Visualization Manager:
         All Enabled: false
         cf_0:
           Value: true
-        cf_0_mocap:
-          Value: false
         cf_1:
           Value: true
-        cf_1_mocap:
-          Value: false
-        obs_0_mocap:
-          Value: false
+        cf_2:
+          Value: true
+        cf_3:
+          Value: true
         world:
           Value: true
       Marker Scale: 1
@@ -78,13 +76,11 @@ Visualization Manager:
         world:
           cf_0:
             {}
-          cf_0_mocap:
-            {}
           cf_1:
             {}
-          cf_1_mocap:
+          cf_2:
             {}
-          obs_0_mocap:
+          cf_3:
             {}
       Update Interval: 0
       Value: true
@@ -92,7 +88,7 @@ Visualization Manager:
       Buffer Length: 1
       Class: rviz_default_plugins/Path
       Color: 0; 170; 255
-      Enabled: false
+      Enabled: true
       Head Diameter: 0.30000001192092896
       Head Length: 0.20000000298023224
       Length: 0.30000001192092896
@@ -115,12 +111,12 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /trajectory_path/traj_vehicle_0
-      Value: false
+      Value: true
     - Alpha: 1
       Buffer Length: 1
       Class: rviz_default_plugins/Path
       Color: 25; 255; 0
-      Enabled: false
+      Enabled: true
       Head Diameter: 0.30000001192092896
       Head Length: 0.20000000298023224
       Length: 0.30000001192092896
@@ -143,7 +139,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /trajectory_path/traj_vehicle_1
-      Value: false
+      Value: true
     - Alpha: 1
       Buffer Length: 1
       Class: rviz_default_plugins/Path
