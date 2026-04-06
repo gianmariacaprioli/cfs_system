@@ -72,7 +72,7 @@ if __name__ == '__main__':
         cf_names = args[n:]
 
     else:
-        print("❌ Errore: specificare il nome della traiettoria (es: traj_square)")
+        print("Errore: specificare il nome della traiettoria (es: traj_square)")
         sys.exit(1)
 
     main(trajectory_names,cf_names)

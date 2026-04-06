@@ -3,14 +3,14 @@ fileversion: 3
 
 robots:
 
-  # cf_0:
-  #   enabled: false
-  #   uri: radio://0/100/2M/E7E7E7E7E0
-  #   initial_position: [-2.0,-1.0,0.0]
-  #   #initial_position: [0.0,0.0,0.0]
-  #   type: cf_one
-
   cf_0:
+    enabled: false
+    uri: radio://0/100/2M/E7E7E7E7E0
+    initial_position: [-2.0,-1.0,0.0]
+    #initial_position: [0.0,0.0,0.0]
+    type: cf_one
+
+  cf_1:
     enabled: true
     uri: radio://1/80/2M/E7E7E7E7E1
     #initial_position: [1.5,0.0, 0.0] #b4 
@@ -25,7 +25,7 @@ robots:
     type: cf_one
     initial_position: [2.0,-1.0,0.0]
 
-  cf_1:
+  cf_3:
     enabled: true
     uri: radio://0/70/2M/E7E7E7E7E3
     initial_position: [1.0, 0.0, 0.0]

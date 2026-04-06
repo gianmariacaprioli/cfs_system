@@ -28,16 +28,15 @@ class DynamicObstaclePublisher(Node):
             # Controlliamo se è un ostacolo (es. 'obs_1', 'obs_2_mocap')
             if 'obs_' in child_frame:
                 
-                # Puliamo il nome per avere un topic elegante (rimuoviamo eventuali suffissi di mocap)
                 clean_name = child_frame.replace('_mocap', '')
                 topic_name = f'/{clean_name}/pose'
                 
-                # 1. CREAZIONE DINAMICA: Se il topic non esiste, creiamo il publisher
+                # 1. CREAZIONE DINAMICA: 
                 if topic_name not in self.publishers_dict:
                     self.get_logger().info(f"Nuovo ostacolo rilevato: {clean_name}. Creo topic: {topic_name}")
                     self.publishers_dict[topic_name] = self.create_publisher(PoseStamped, topic_name, 100)
                 
-                # 2. ASSEMBLAGGIO MESSAGGIO: Convertiamo il Transform in PoseStamped
+                # 2. ASSEMBLAGGIO MESSAGGIO:
                 pose_msg = PoseStamped()
                 pose_msg.header = transform.header
                 
