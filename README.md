@@ -13,7 +13,7 @@ When cloning this repository, please use the following command to ensure all dep
 git clone https://github.com/gianmariacaprioli/cfs_system.git crazyswarm2
 ```
 
-#README:
+# README:
 
 * Local CI: [![ROS 2](https://github.com/IMRCLab/crazyswarm2/actions/workflows/ci-ros2.yml/badge.svg)](https://github.com/IMRCLab/crazyswarm2/actions/workflows/ci-ros2.yml)
 * Rolling Dev CI : [![Build Status](https://build.ros2.org/job/Rdev__crazyflie__ubuntu_noble_amd64/badge/icon)](https://build.ros2.org/job/Rdev__crazyflie__ubuntu_noble_amd64/)
